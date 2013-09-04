@@ -3,7 +3,6 @@ package com.wadpam.open.mvc;
 import com.wadpam.open.transaction.Idempotent;
 import java.io.OutputStream;
 import java.io.Serializable;
-import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -46,11 +45,11 @@ public interface CrudService<
     /**
      * Deletes specified entities from the underlying database persistence.
      * @param parentKeyString
-     * @param id an array of IDs
+     * @param ids an array of IDs
      */
     @Transactional(readOnly = false)
     @Idempotent
-    void delete(String parentKeyString, ID[] id);
+    void delete(String parentKeyString, Iterable<ID> ids);
 
     void exportCsv(OutputStream out, Long startDate, Long endDate);
     
@@ -69,7 +68,7 @@ public interface CrudService<
      * @return 
      */
     @Idempotent
-    Iterable<T> getByPrimaryKeys(Collection<ID> ids);
+    Iterable<T> getByPrimaryKeys(Iterable<ID> ids);
 
     /**
      * Reads a page of entities from the underlying database persistence.
@@ -78,7 +77,7 @@ public interface CrudService<
      * @return 
      */
     @Idempotent
-    CursorPage<T, ID> getPage(int pageSize, String cursorKey);
+    CursorPage<T> getPage(int pageSize, String cursorKey);
     
     /**
      * Extractor method to get the simple key from specified domain entity object.
@@ -133,11 +132,14 @@ public interface CrudService<
     /**
      * Returns a page of IDs, for those entities that has changed or been deleted since.
      * @param since include entities that has changed or been deleted after this value
+     * @param createdBy omit to get Entities createdBy any user, 'me' to get current user's only
+     * @param updatedBy omit to get Entities updatedBy any user, 'me' to get current user's only
      * @param pageSize
      * @param cursorKey null for first page, otherwise same value as returned in previous CursorPage
      * @return the IDs of the upserted entities
      */
     @Idempotent
-    CursorPage<ID, ID> whatsChanged(Date since, int pageSize, String cursorKey);
+    CursorPage<ID> whatsChanged(Date since, String createdBy, String updatedBy, 
+        int pageSize, String cursorKey);
 
 }
