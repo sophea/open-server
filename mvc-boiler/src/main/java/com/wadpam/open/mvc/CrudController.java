@@ -1,11 +1,5 @@
 package com.wadpam.open.mvc;
 
-import com.wadpam.docrest.domain.RestCode;
-import com.wadpam.docrest.domain.RestReturn;
-import com.wadpam.open.exceptions.NotFoundException;
-import com.wadpam.open.json.JBaseObject;
-import com.wadpam.open.json.JCursorPage;
-import com.wadpam.open.json.JLocation;
 import java.io.Serializable;
 import java.net.URI;
 import java.text.ParseException;
@@ -18,13 +12,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
 import net.sf.mardao.core.CursorPage;
 import net.sf.mardao.core.domain.AbstractCreatedUpdatedEntity;
 import net.sf.mardao.core.domain.AbstractLongEntity;
 import net.sf.mardao.core.domain.AbstractStringEntity;
 import net.sf.mardao.core.geo.DLocation;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -43,6 +40,14 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.view.RedirectView;
 
+import com.wadpam.docrest.domain.RestCode;
+import com.wadpam.docrest.domain.RestReturn;
+import com.wadpam.open.exceptions.NotFoundException;
+import com.wadpam.open.json.JBaseObject;
+import com.wadpam.open.json.JCursorPage;
+import com.wadpam.open.json.JLocation;
+import java.text.SimpleDateFormat;
+
 /**
  *
  * @author os
@@ -55,20 +60,32 @@ public abstract class CrudController<
     
     public static final String NAME_X_REQUESTED_WITH = "X-Requested-With";
     public static final String VALUE_X_REQUESTED_WITH_AJAX = "XMLHttpRequest";
+    /** must be same as MardaoPrincipalInterceptor value */
+    public static final String ATTR_NAME_USERNAME = "com.wadpam.open.security.username";
+    public static final String ALIAS_ME = "me";
     
     public static final int ERR_CRUD_BASE = 99000;
     public static final int ERR_DELETE_NOT_FOUND = ERR_CRUD_BASE + 1;
     public static final int ERR_GET_NOT_FOUND = ERR_CRUD_BASE + 2;
     
+    /** Sat, 29 Oct 1994 19:43:31 GMT */
+    public static final SimpleDateFormat LAST_MODIFIED_DATE_FORMAT = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
+    
     protected static final Logger LOG = LoggerFactory.getLogger(CrudController.class);
     
     protected final Class jsonClass;
     protected S service;
-    
+    protected final Class idClass;
     protected final ArrayList<CrudListener> listeners = new ArrayList<CrudListener>();
+    
+    protected CrudController(Class<J> jsonClazz, Class idClass) {
+        this.jsonClass = jsonClazz;
+        this.idClass = idClass;
+    }
     
     protected CrudController(Class<J> jsonClazz) {
         this.jsonClass = jsonClazz;
+        this.idClass = Long.class;
     }
     
     /**
@@ -301,7 +318,8 @@ public abstract class CrudController<
     }
 
     /**
-    * deleteFromJsonp  for cross-domain - delete an Entity and return HttpStatus.NO_CONTENT .
+    * deleteFromJsonp  for cross-domain - delete an Entity and return HttpStatus.NO_CONTENT . 
+    * use param id the ids as an array
     * @param domain the path-variable domain
     * @param id the ids as an array
     * @param _method value must be  "DELETE"	 	 
@@ -315,13 +333,16 @@ public abstract class CrudController<
             HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable String domain,
-            @RequestParam ID[] id,
+            @RequestParam String[] id,
             @RequestParam(required=false) String parentKeyString
             ) {
         LOG.debug("DELETE {}/{}", parentKeyString, id);
         
+        Collection simpleKeys =convertDomainPrimaryKeys(id);
+        
         preService(request, domain, CrudListener.DELETE_BATCH, null, null, id);
-        service.delete(parentKeyString, id);
+        service.delete(parentKeyString, simpleKeys);
+
         postService(request, domain, CrudListener.DELETE_BATCH, null, id, null);
         
         return new ResponseEntity(HttpStatus.NO_CONTENT);
@@ -343,7 +364,7 @@ public abstract class CrudController<
             HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable String domain,
-            @RequestParam ID[] id,
+            @RequestParam String[] id,
             @RequestParam(required=false) String parentKeyString,
             @RequestParam("_method") String _method
             ) {
@@ -399,6 +420,7 @@ public abstract class CrudController<
     
     /**
      * Queries for non-deleted entities. If not found or soft-deleted, it will be excluded from the response.
+     * The param i array of ids to retrieve.
      * @param i array of ids to retrieve
      * @return a Collection of non-deleted J objects
      */
@@ -406,19 +428,15 @@ public abstract class CrudController<
         @RestCode(code=200, description="A CursorPage with JSON entities", message="OK")})
     @RequestMapping(value="v10", method={RequestMethod.GET, RequestMethod.POST}, params={"i"})
     @ResponseBody
-    public Collection<J> getExisting(
-            @RequestParam ID[] i
-            ) {
-        ArrayList<ID> simpleKeys = new ArrayList<ID>();
-        for (ID id : i) {
-            simpleKeys.add(id);
-        }
-        final Iterable<T> page = service.getByPrimaryKeys(simpleKeys);
+    public Collection<J> getExisting(HttpServletRequest request,
+            @RequestParam String[] i) {
         
+        Collection simpleKeys =convertDomainPrimaryKeys(i);
+        final Iterable<T> page = service.getByPrimaryKeys(simpleKeys);
         final Collection<J> body = convert(page);
         return body;
     }
-
+    
     /**
      * Queries for a (next) page of entities
      * @param pageSize default is 10
@@ -439,7 +457,7 @@ public abstract class CrudController<
             @RequestParam(required=false) String cursorKey) {
         
         preService(request, domain, CrudListener.GET_PAGE, null, null, cursorKey);
-        final CursorPage<T, ID> page = service.getPage(pageSize, cursorKey);
+        final CursorPage<T> page = service.getPage(pageSize, cursorKey);
         final JCursorPage body = convertPageWithInner(request, response, domain, 
                 model, page);
         postService(request, domain, CrudListener.GET_PAGE, body, cursorKey, page);
@@ -706,6 +724,8 @@ public abstract class CrudController<
      * Header If-Modified-Since is required, timestamp of last update; use "Sat, 29 Oct 1994 19:43:31 GMT" if none
      * @param pageSize default is 10
      * @param cursorKey null to get first page
+     * @param createdBy omit to get Entities createdBy any user, 'me' to get current user's only
+     * @param updatedBy omit to get Entities updatedBy any user, 'me' to get current user's only
      * @return a page of ids that has updatedDate >= lastModified, or 304 Not Modified
      */
     @RestReturn(value=JCursorPage.class, entity=Long.class, code={
@@ -713,17 +733,32 @@ public abstract class CrudController<
         @RestCode(code=304, description="Nothing changed since", message="Not Modified")})
     @RequestMapping(value="v10", method= RequestMethod.GET, headers={"If-Modified-Since"})
     @ResponseBody
-    public CursorPage<ID, ID> whatsChanged(
+    public CursorPage<ID> whatsChanged(
             HttpServletRequest request,
             WebRequest webRequest,
             @PathVariable String domain,
-            @RequestHeader(value="If-Modified-Since") Date since,
+            @RequestHeader(value="If-Modified-Since") String since,
             @RequestParam(defaultValue="10") int pageSize, 
-            @RequestParam(required=false) String cursorKey) throws ParseException {
+            @RequestParam(required=false) String cursorKey,
+            @RequestParam(required=false) String createdBy,
+            @RequestParam(required=false) String updatedBy) throws ParseException {
+        
         final long currentMillis = System.currentTimeMillis();
         preService(request, domain, CrudListener.WHAT_CHANGED, null, null, cursorKey);
-        final CursorPage<ID, ID> page = service.whatsChanged(since, pageSize, cursorKey);
-        long lastModified = page.getItems().isEmpty() ? 0L : currentMillis;
+        final Date sinceDate = LAST_MODIFIED_DATE_FORMAT.parse(since);
+        
+        final String principalName = (String) request.getAttribute(ATTR_NAME_USERNAME);
+        if (ALIAS_ME.equals(createdBy)) {
+            createdBy = principalName;
+        }
+        if (ALIAS_ME.equals(updatedBy)) {
+            updatedBy = principalName;
+        }
+        
+        final CursorPage<ID> page = service.whatsChanged(sinceDate, 
+                createdBy, updatedBy, pageSize, cursorKey);
+        long lastModified = page.getItems().isEmpty() ? 1000L : currentMillis;
+        LOG.debug("page contains {} IDs", page.getItems().size());
         
         if (webRequest.checkNotModified(lastModified)) {
             // shortcut exit - no further processing necessary
@@ -950,7 +985,7 @@ public abstract class CrudController<
         return new JLocation(from.getLatitude(), from.getLongitude());
     }
     
-    public JCursorPage<J> convertPage(CursorPage<T, ID> from) {
+    public JCursorPage<J> convertPage(CursorPage<T> from) {
         final JCursorPage<J> to = new JCursorPage<J>();
         
         to.setPageSize(from.getItems().size());
@@ -962,7 +997,7 @@ public abstract class CrudController<
     }
 
     public JCursorPage<J> convertPageWithInner(HttpServletRequest request, HttpServletResponse response,
-            String domain, Model model, CursorPage<T, ID> from) {
+            String domain, Model model, CursorPage<T> from) {
         final JCursorPage<J> to = new JCursorPage<J>();
         
         to.setPageSize(from.getItems().size());
@@ -984,7 +1019,7 @@ public abstract class CrudController<
         }
         return from.getTime();
     }
-
+    
     public static Long toLong(String from) {
         if (null == from) {
             return null;
@@ -1005,7 +1040,7 @@ public abstract class CrudController<
         }
         return Long.toString(from);
     }
-
+    
     public static Collection<Long> toLongs(Collection<String> from) {
         if (null == from) {
             return null;
@@ -1065,6 +1100,16 @@ public abstract class CrudController<
         }
     }
     
+    protected Collection convertDomainPrimaryKeys(String[] id) {
+        LOG.debug("convertDomainPrimaryKeys : {}",  id);
+        Collection simpleKeys =null;
+        if (Long.class.equals(idClass)){
+            simpleKeys =CrudController.toLongs(Arrays.asList(id));
+        } else {
+            simpleKeys=Arrays.asList(id);
+        }
+        return simpleKeys;
+    }
     // -----------------  getters and setters    -------------------------------
 
     public S getService() {
@@ -1075,4 +1120,6 @@ public abstract class CrudController<
         this.service = service;
     }
     
+  
 }
+

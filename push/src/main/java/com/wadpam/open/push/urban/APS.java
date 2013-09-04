@@ -1,13 +1,18 @@
 package com.wadpam.open.push.urban;
 
+import java.util.Map;
+
 /**
  * 
  * APS: Apple Push notification Service
  * 
  */
 public class APS implements java.io.Serializable {
-//	private Integer badge;
+    /**auto, increment, and  decrement: values to send ( "auto" ,"+1","-1" ) */
+	private String badge ="auto";
 	private String alert;
+	
+	private Map<String,String> customData;
 //	private String sound;
 
 //	public Integer getBadge() {
@@ -32,6 +37,22 @@ public class APS implements java.io.Serializable {
 	public void setAlert(String alert) {
 		this.alert = alert;
 	}
+
+    public String getBadge() {
+        return badge;
+    }
+
+    public void setBadge(String badge) {
+        this.badge = badge;
+    }
+
+    public Map<String, String> getCustomData() {
+        return customData;
+    }
+
+    public void setCustomData(Map<String, String> customData) {
+        this.customData = customData;
+    }
 
 //	public void setAlert(Alert a) {
 //		this.alert = a;

@@ -117,15 +117,11 @@ public abstract class MardaoCrudService<
     }
 
     @Override
-    public void delete(String parentKeyString, ID[] id) {
+    public void delete(String parentKeyString, Iterable<ID> ids) {
         final TransactionStatus transactionStatus = getTransaction();
         preDao();
         try {
             Object parentKey = dao.getPrimaryKey(parentKeyString);
-            final ArrayList<ID> ids = new ArrayList<ID>();
-            for (ID i : id) {
-                ids.add(i);
-            }
             dao.delete(parentKey, ids);
             commitTransaction(transactionStatus);
         }
@@ -173,7 +169,7 @@ public abstract class MardaoCrudService<
     }
     
     @Override
-    public Iterable<T> getByPrimaryKeys(Collection<ID> ids) {
+    public Iterable<T> getByPrimaryKeys(Iterable<ID> ids) {
         preDao();
         try {
             final Iterable<T> entities = dao.queryByPrimaryKeys(null, ids);
@@ -200,7 +196,7 @@ public abstract class MardaoCrudService<
     }
 
     @Override
-    public CursorPage<T, ID> getPage(int pageSize, String cursorKey) {
+    public CursorPage<T> getPage(int pageSize, String cursorKey) {
         preDao();
         try {
             return dao.queryPage(pageSize, cursorKey);
@@ -342,22 +338,27 @@ public abstract class MardaoCrudService<
     }
     
     @Override
-    public CursorPage<ID, ID> whatsChanged(Date since, int pageSize, String cursorKey) {
-        preDao();
-        try {
-            // TODO: include deletes from Audit table
-            return dao.whatsChanged(since, pageSize, cursorKey);
+    public CursorPage<ID> whatsChanged(Date since, String createdBy, String updatedBy, 
+            int pageSize, String cursorKey) {
+        
+        // are createdBy and/or updatedBy specified?
+        int fs = (null != createdBy ? 1 : 0) + (null != updatedBy ? 1 : 0);
+        Filter filters[] = new Filter[fs];
+        int i = 0;
+        if (null != createdBy) {
+            filters[i++] = dao.createEqualsFilter(dao.getCreatedByColumnName(), createdBy);
         }
-        finally {
-            postDao();
+        if (null != updatedBy) {
+            filters[i++] = dao.createEqualsFilter(dao.getUpdatedByColumnName(), updatedBy);
         }
+        
+        return whatsChanged(null, since, pageSize, cursorKey, filters);
     }
     
-    public CursorPage<ID, ID> whatsChanged(Object parentKey, Date since, 
+    public CursorPage<ID> whatsChanged(Object parentKey, Date since, 
             int pageSize, String cursorKey, Filter... filters) {
         preDao();
         try {
-            // TODO: include deletes from Audit table
             return dao.whatsChanged(parentKey, since, pageSize, cursorKey, filters);
         }
         finally {
